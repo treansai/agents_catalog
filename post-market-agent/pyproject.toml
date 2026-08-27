@@ -1,0 +1,11 @@
+[project]
+name = "post-market-agent"
+version = "0.0.1"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "requests",
+    "langchain",
+    "pydantic>=2.13.4",
+]

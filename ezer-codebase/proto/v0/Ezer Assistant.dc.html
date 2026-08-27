@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#050505; font-family:'Instrument Sans',sans-serif; -webkit-font-smoothing:antialiased; }
+  a { color:#b0525e; text-decoration:none; }
+  a:hover { color:#d97883; }
+  @keyframes ezbar { 0%,100% { transform:scaleY(0.25); } 50% { transform:scaleY(1); } }
+  @keyframes ezpulse { 0%,100% { opacity:0.35; transform:scale(1); } 50% { opacity:0.9; transform:scale(1.35); } }
+  @keyframes ezfade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</helmet>
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:#050505; padding:40px;">
+  <div style="width:400px; height:620px; background:#0b0a0a; border:1px solid #1c1516; border-radius:20px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 40px 100px rgba(0,0,0,0.7);">
+
+    <!-- header -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 22px 0 22px;">
+      <div style="display:flex; align-items:center; gap:9px;">
+        <div style="width:8px; height:8px; border-radius:50%; background:{{ accent }};"></div>
+        <span style="font-size:15px; font-weight:600; letter-spacing:0.04em; color:#f2eded;">ezer</span>
+      </div>
+      <div style="display:flex; gap:2px; background:#131011; border:1px solid #201819; border-radius:99px; padding:3px;">
+        <button onClick="{{ setOpaque }}" style="border:none; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:0.06em; padding:5px 12px; border-radius:99px; background:{{ opaqueBg }}; color:{{ opaqueFg }};">opaque</button>
+        <button onClick="{{ setCopilot }}" style="border:none; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:0.06em; padding:5px 12px; border-radius:99px; background:{{ copilotBg }}; color:{{ copilotFg }};">copilote</button>
+      </div>
+    </div>
+
+    <!-- voice zone -->
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; flex:{{ vizFlex }}; padding:28px 0; transition:flex 0.4s ease;">
+      {{ voiceViz }}
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.14em; color:#6b5a5c; text-transform:uppercase;">{{ statusLabel }}</div>
+    </div>
+
+    <!-- copilot feed -->
+      <div style="flex:1; display:{{ feedDisplay }}; flex-direction:column; gap:0; padding:0 22px 18px 22px; overflow:hidden;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.16em; color:#4d3f41; text-transform:uppercase; padding-bottom:12px; border-bottom:1px solid #1a1314;">actions en direct</div>
+        <div style="display:flex; flex-direction:column; overflow:hidden;">
+          <sc-for list="{{ actions }}" as="act" hint-placeholder-count="4">
+            <div style="display:flex; align-items:baseline; gap:12px; padding:13px 0; border-bottom:1px solid #140f10; animation:ezfade 0.35s ease;">
+              <div style="width:6px; height:6px; border-radius:50%; background:{{ act.dotColor }}; flex-shrink:0; align-self:center;"></div>
+              <div style="display:flex; flex-direction:column; gap:3px; min-width:0;">
+                <span style="font-size:13px; color:#d8cfd0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ act.text }}</span>
+                <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; color:#5c4d4f;">{{ act.meta }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+    <!-- footer -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-top:1px solid #171112;">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.1em; color:#4d3f41;">{{ counterLabel }}</span>
+      <button onClick="{{ toggleListening }}" style="border:1px solid {{ micBorder }}; background:{{ micBg }}; color:{{ micFg }}; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:0.08em; padding:7px 16px; border-radius:99px;">{{ micLabel }}</button>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:520,&quot;height&quot;:720},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#880d1e&quot;,&quot;options&quot;:[&quot;#880d1e&quot;,&quot;#a51226&quot;,&quot;#5e0a15&quot;,&quot;#b03040&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;opaque&quot;,&quot;options&quot;:[&quot;opaque&quot;,&quot;copilote&quot;],&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { mode: null, listening: true, step: 0, speaker: "user" };
+
+  script = [
+    { text: "Lecture de 14 nouveaux mails", meta: "boîte de réception" },
+    { text: "Facture EDF — août 2026", meta: "classé → finances" },
+    { text: "Newsletter Le Monde", meta: "classé → lectures" },
+    { text: "Relance client Dupont", meta: "marqué → urgent" },
+    { text: "Confirmation billet SNCF", meta: "classé → voyages" },
+    { text: "3 promotions détectées", meta: "archivées" },
+    { text: "Invitation réunion jeudi 10h", meta: "ajoutée à l'agenda" }
+  ];
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      this.setState(s => ({
+        step: s.listening && s.step < this.script.length ? s.step + 1 : s.step,
+        speaker: s.listening ? (s.speaker === "user" ? "assistant" : "user") : s.speaker
+      }));
+    }, 3400);
+    // fibonacci sphere
+    this.pts = [];
+    const N = 150, ga = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = ga * i;
+      this.pts.push({ x: Math.cos(th) * r, y, z: Math.sin(th) * r, ph: Math.random() * Math.PI * 2, sp: 2 + Math.random() * 4 });
+    }
+    this.pulses = [];
+    this.rotY = 0; this.rotX = 0; this.t = 0;
+    const loop = () => {
+      this.raf = requestAnimationFrame(loop);
+      const cv = this.cv; if (!cv) return;
+      const ctx = cv.getContext("2d");
+      const w = cv.width, h = cv.height, dpr = 2;
+      const listening = this.state.listening;
+      const assistant = this.state.speaker === "assistant";
+      this.t += 0.016;
+      this.rotY += listening ? (assistant ? 0.005 : 0.002) : 0.001;
+      this.rotX = Math.sin(this.t * 0.18) * 0.45;
+      ctx.clearRect(0, 0, w, h);
+      const R = w * 0.36, f = w * 1.4, cx = w / 2, cy = h / 2;
+      const cyv = Math.cos(this.rotX), syv = Math.sin(this.rotX);
+      const cyy = Math.cos(this.rotY), syy = Math.sin(this.rotY);
+      const proj = this.pts.map(p => {
+        let x = p.x * cyy + p.z * syy, z1 = -p.x * syy + p.z * cyy;
+        let y = p.y * cyv - z1 * syv, z = p.y * syv + z1 * cyv;
+        const s = f / (f + z * R);
+        return { sx: cx + x * R * s, sy: cy + y * R * s, s, z, p };
+      });
+      // assistant: electric pulses between nearby points
+      if (listening && assistant) {
+        if (Math.random() < 0.35 && this.pulses.length < 14) {
+          const a = (Math.random() * this.pts.length) | 0;
+          let best = -1, bd = 1e9;
+          for (let j = 0; j < this.pts.length; j++) {
+            if (j === a) continue;
+            const q = this.pts[j], o = this.pts[a];
+            const d = (q.x - o.x) ** 2 + (q.y - o.y) ** 2 + (q.z - o.z) ** 2;
+            if (d < bd && d > 0.02 && Math.random() < 0.4) { bd = d; best = j; }
+          }
+          if (best >= 0 && bd < 0.5) this.pulses.push({ a, b: best, life: 1 });
+        }
+        for (const pu of this.pulses) {
+          pu.life -= 0.045;
+          const A = proj[pu.a], B = proj[pu.b];
+          const al = Math.max(0, pu.life) * 0.9 * Math.min(A.s, B.s);
+          ctx.strokeStyle = "rgba(255,90,110," + al.toFixed(3) + ")";
+          ctx.lineWidth = 1.2 * dpr * pu.life;
+          ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.stroke();
+        }
+        this.pulses = this.pulses.filter(p => p.life > 0);
+      } else this.pulses.length = 0;
+      // points
+      for (const q of proj) {
+        const depth = (q.s - 0.8) * 3;
+        let al, sz;
+        if (!listening) { al = 0.22 * q.s; sz = 1.4; }
+        else if (assistant) { al = 0.35 + 0.4 * Math.max(0, depth); sz = 1.6; }
+        else { const tw = 0.5 + 0.5 * Math.sin(this.t * q.p.sp + q.p.ph); al = (0.12 + 0.85 * tw * tw) * q.s; sz = 1.2 + 1.6 * tw; }
+        ctx.fillStyle = (listening && !assistant && al > 0.7) ? "rgba(255,150,160," + al.toFixed(3) + ")" : "rgba(196,46,66," + Math.min(1, al).toFixed(3) + ")";
+        ctx.beginPath(); ctx.arc(q.sx, q.sy, sz * dpr * q.s, 0, 6.284); ctx.fill();
+      }
+    };
+    loop();
+  }
+  componentWillUnmount() { clearInterval(this.timer); cancelAnimationFrame(this.raf); }
+
+  renderVals() {
+    const accent = this.props.accent ?? "#880d1e";
+    const mode = this.state.mode ?? (this.props.mode ?? "opaque");
+    const isCopilot = mode === "copilote";
+    const listening = this.state.listening;
+
+    const n = this.script.length;
+    const done = Math.min(this.state.step, n);
+    const actions = [];
+    for (let i = Math.max(0, done - 4); i <= done && i < n; i++) {
+      actions.push({
+        text: this.script[i].text,
+        meta: i === done && listening ? "en cours…" : this.script[i].meta,
+        dotColor: i === done && listening ? accent : "#3a2c2e"
+      });
+    }
+    actions.reverse();
+
+    const size = isCopilot ? 130 : 250;
+    const voiceViz = React.createElement("canvas", {
+      key: "orb" + size,
+      ref: el => { this.cv = el; },
+      width: size * 2, height: size * 2,
+      onClick: () => this.setState(s => ({ speaker: s.speaker === "user" ? "assistant" : "user" })),
+      style: { width: size, height: size, cursor: "pointer", transition: "width 0.4s ease, height 0.4s ease" }
+    });
+
+    return {
+      accent, voiceViz, isCopilot, actions,
+      feedDisplay: isCopilot ? "flex" : "none",
+      vizFlex: isCopilot ? "0 0 auto" : "1",
+      statusLabel: listening ? (this.state.speaker === "assistant" ? "ezer répond" : "vous parlez") : "en pause",
+      counterLabel: done + " / " + n + " mails traités",
+      setOpaque: () => this.setState({ mode: "opaque" }),
+      setCopilot: () => this.setState({ mode: "copilote" }),
+      opaqueBg: !isCopilot ? accent : "transparent",
+      opaqueFg: !isCopilot ? "#f5eaea" : "#6b5a5c",
+      copilotBg: isCopilot ? accent : "transparent",
+      copilotFg: isCopilot ? "#f5eaea" : "#6b5a5c",
+      toggleListening: () => this.setState(s => ({ listening: !s.listening })),
+      micLabel: listening ? "⏸ pause" : "● reprendre",
+      micBorder: listening ? "#2a1f20" : accent,
+      micBg: listening ? "transparent" : accent,
+      micFg: listening ? "#8a7679" : "#f5eaea"
+    };
+  }
+}
+</script>
+</body>
+</html>

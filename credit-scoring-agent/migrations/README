@@ -1,0 +1,3 @@
+Single PostgreSQL migration history for the credit-scoring agent.
+
+Set DATABASE_URL before running `alembic upgrade head`.

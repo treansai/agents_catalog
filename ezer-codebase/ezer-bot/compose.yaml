@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ezer
+      POSTGRES_USER: ezer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ezer -d ezer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: ["api", "--host", "0.0.0.0", "--port", "8080"]
+    env_file: .env
+    environment:
+      EZER_ENVIRONMENT: production
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      EZER_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_ACCOUNTS_FILE: /run/secrets/ezer_accounts.json
+      EZER_MSAL_CACHE_DIR: /data/msal-cache
+    secrets:
+      - source: ezer_accounts
+        target: ezer_accounts.json
+    volumes:
+      - msal-cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2).read()",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["worker"]
+    env_file: .env
+    environment:
+      EZER_ENVIRONMENT: production
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      EZER_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_ACCOUNTS_FILE: /run/secrets/ezer_accounts.json
+      EZER_MSAL_CACHE_DIR: /data/msal-cache
+    secrets:
+      - source: ezer_accounts
+        target: ezer_accounts.json
+    volumes:
+      - msal-cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 16m
+    restart: unless-stopped
+
+secrets:
+  ezer_accounts:
+    file: ./accounts.json
+
+volumes:
+  msal-cache:
+  postgres-data:

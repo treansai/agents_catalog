@@ -1,0 +1,139 @@
+@keyframes ezping {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.ezc {
+  --ezc-bg: #050505;
+  --ezc-bg-2: #0a0909;
+  --ezc-line: #1c1516;
+  --ezc-line-2: #140f10;
+  --ezc-ink: #f2eded;
+  --ezc-muted: #c9bfc0;
+  --ezc-quiet: #6b5a5c;
+  --ezc-dim: #4d3f41;
+  --ezc-accent: #880d1e;
+  --ezc-accent-text: #d97883;
+  --ezc-ok: #7da57d;
+  font-family: var(--font-voice), system-ui, sans-serif;
+  color: var(--ezc-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.ezc-mono {
+  font-family: var(--font-voice-mono), ui-monospace, monospace;
+}
+
+.ezc-card {
+  background: var(--ezc-bg);
+  border: 1px solid var(--ezc-line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.ezc-pill {
+  font-family: var(--font-voice-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  padding: 7px 14px;
+  border-radius: 99px;
+  border: 1px solid #2a1f20;
+  background: transparent;
+  color: #8a7679;
+  cursor: pointer;
+}
+
+.ezc-pill.is-primary {
+  border: none;
+  background: var(--ezc-accent);
+  color: #f5eaea;
+}
+
+.ezc-pill.is-danger {
+  border-color: #6d1622;
+  color: #e0808b;
+}
+
+.ezc-pill[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ezc-tag {
+  font-family: var(--font-voice-mono), ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: #131011;
+  border: 1px solid #201819;
+  color: #6b5a5c;
+  flex-shrink: 0;
+}
+
+.ezc-tag.is-urgent {
+  background: rgba(136, 13, 30, 0.25);
+  border-color: transparent;
+  color: #d97883;
+}
+
+.ezc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ezc-line-2);
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ezc-row:last-child {
+  border-bottom: 0;
+}
+
+.ezc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ezc-dot.is-unread {
+  background: #ff5a6e;
+}
+
+.ezc-dot.is-live {
+  background: var(--ezc-accent);
+  animation: ezping 1.2s ease-in-out infinite;
+}
+
+.ezc-skel {
+  height: 10px;
+  border-radius: 99px;
+  background: #1a1314;
+  animation: ezping 1.4s ease-in-out infinite;
+}
+
+.ezc-fallback {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #a89a9c;
+  padding: 12px 0;
+}
+
+.ezc-link {
+  color: #b0525e;
+  text-decoration: none;
+}
+
+.ezc-link:hover {
+  color: #d97883;
+}

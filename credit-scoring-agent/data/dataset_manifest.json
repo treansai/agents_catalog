@@ -1,0 +1,43 @@
+{
+  "dataset_sha256": "c354416c25301017f2becb1daead37365d0e0f98440ba3f64f398b19e1669852",
+  "dataset_size": 200,
+  "seed": 2024081689,
+  "subgroups": {
+    "A_REVENUS_ELEVES": {
+      "count": 50,
+      "nb_incidents_passes_moyen": "0.00",
+      "postal_prefix_counts": {
+        "75": 24,
+        "92": 26
+      },
+      "revenu_mensuel_moyen": "4478.74"
+    },
+    "B_REVENUS_MOYENS": {
+      "count": 50,
+      "nb_incidents_passes_moyen": "0.44",
+      "postal_prefix_counts": {
+        "31": 28,
+        "69": 22
+      },
+      "revenu_mensuel_moyen": "3117.62"
+    },
+    "C_REVENUS_MODESTES": {
+      "count": 50,
+      "nb_incidents_passes_moyen": "1.44",
+      "postal_prefix_counts": {
+        "13": 27,
+        "59": 23
+      },
+      "revenu_mensuel_moyen": "2133.76"
+    },
+    "D_REVENUS_FAIBLES": {
+      "count": 50,
+      "nb_incidents_passes_moyen": "3.92",
+      "postal_prefix_counts": {
+        "62": 20,
+        "93": 30
+      },
+      "revenu_mensuel_moyen": "1461.12"
+    }
+  }
+}

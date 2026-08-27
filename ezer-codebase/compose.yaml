@@ -1,0 +1,185 @@
+# Full Ezer stack: Next.js frontend -> NestJS backend, plus the Python bot
+# (API + Postgres, worker opt-in). Values come from the root .env file.
+name: ezer
+
+services:
+  backend:
+    build:
+      context: ./ezer-backend
+    environment:
+      EZER_MODE: ${EZER_MODE:-demo}
+      EZER_API_KEY: ${EZER_API_KEY:-ezer-demo-key}
+      # Bind on every interface so the published port actually reaches the app.
+      EZER_HOST: 0.0.0.0
+      EZER_PORT: "8080"
+      EZER_DATA_FILE: /app/data/ezer.json
+      EZER_DEMO_RESET_ON_START: ${EZER_DEMO_RESET_ON_START:-false}
+      EZER_SYNC_DEFAULT_LIMIT: ${EZER_SYNC_DEFAULT_LIMIT:-50}
+      EZER_SYNC_MAX_LIMIT: ${EZER_SYNC_MAX_LIMIT:-500}
+      # Comptes connectables et application Entra publique du flux device code.
+      EZER_ACCOUNTS_JSON: ${EZER_ACCOUNTS_JSON:-[]}
+      EZER_OUTLOOK_CLIENT_ID: ${EZER_OUTLOOK_CLIENT_ID:-}
+      # Refresh tokens délégués, sur le volume, hors du fichier de données du tableau de bord.
+      EZER_TOKEN_FILE: /app/data/tokens.json
+      # Cartographie : géocodage côté serveur, routage sur un service au protocole OSRM.
+      EZER_MAPTILER_KEY: ${EZER_MAPTILER_KEY:-}
+      EZER_MAPTILER_STYLE: ${EZER_MAPTILER_STYLE:-streets-v2-dark}
+      EZER_ROUTING_URL: ${EZER_ROUTING_URL:-}
+      EZER_DEFAULT_ORIGIN: ${EZER_DEFAULT_ORIGIN:-Paris, France}
+      # Géocodeur de repli sans clé. Vide = désactivé, aucun appel sortant.
+      EZER_NOMINATIM_URL: ${EZER_NOMINATIM_URL-https://nominatim.openstreetmap.org}
+      EZER_MAP_CONTACT: ${EZER_MAP_CONTACT:-ezer-agent-ui}
+    volumes:
+      - backend-data:/app/data
+    ports:
+      - "127.0.0.1:${EZER_BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  front:
+    build:
+      context: ./ezer-front
+    environment:
+      # Same-origin BFF calls the backend over the compose network.
+      EZER_API_URL: http://backend:8080
+      EZER_API_KEY: ${EZER_API_KEY:-ezer-demo-key}
+      # L'assistant multi-agents est servi par le bot, pas par le backend.
+      EZER_BOT_URL: http://bot-api:8080
+      EZER_BOT_API_KEY: ${EZER_BOT_API_KEY:?set EZER_BOT_API_KEY in the root .env}
+      # Absent => les routes vocales répondent « non configurée » au lieu de planter.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Conversation vocale temps réel (WebRTC).
+      OPENAI_REALTIME_MODEL: ${OPENAI_REALTIME_MODEL:-gpt-realtime-2.1-mini}
+      OPENAI_REALTIME_VOICE: ${OPENAI_REALTIME_VOICE:-marin}
+      # Fond de carte : la clé est lue à l'exécution, pas figée dans l'image.
+      EZER_MAPTILER_KEY: ${EZER_MAPTILER_KEY:-}
+      EZER_MAPTILER_STYLE: ${EZER_MAPTILER_STYLE:-streets-v2-dark}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${EZER_FRONT_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/ezer/snapshot').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ezer
+      POSTGRES_USER: ezer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the root .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ezer -d ezer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    restart: unless-stopped
+
+  bot-api:
+    build:
+      context: ./ezer-bot
+    command: ["api", "--host", "0.0.0.0", "--port", "8080"]
+    env_file: ./ezer-bot/.env
+    environment:
+      EZER_ENVIRONMENT: production
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the root .env}
+      EZER_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_AES_KEY: ${EZER_CHECKPOINT_AES_KEY:?set EZER_CHECKPOINT_AES_KEY in the root .env}
+      EZER_MSAL_CACHE_AES_KEY: ${EZER_MSAL_CACHE_AES_KEY:?set EZER_MSAL_CACHE_AES_KEY in the root .env}
+      EZER_ACCOUNTS_FILE: /run/secrets/ezer_accounts.json
+      EZER_MSAL_CACHE_DIR: /data/msal-cache
+      # Les agents lisent et suppriment les messages via le backend, jamais via Microsoft.
+      EZER_BACKEND_URL: http://backend:8080
+      EZER_BACKEND_API_KEY: ${EZER_API_KEY:-ezer-demo-key}
+    secrets:
+      - source: ezer_accounts
+        target: ezer_accounts.json
+    volumes:
+      - msal-cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${EZER_BOT_PORT:-8081}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2).read()",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+  # Polls real mailboxes and calls Anthropic. Opt-in: `--profile worker`.
+  # Requires a primed MSAL cache in the msal-cache volume (see README).
+  bot-worker:
+    profiles: ["worker"]
+    build:
+      context: ./ezer-bot
+    command: ["worker"]
+    env_file: ./ezer-bot/.env
+    environment:
+      EZER_ENVIRONMENT: production
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the root .env}
+      EZER_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_DATABASE_URL: postgresql://ezer@postgres:5432/ezer
+      EZER_CHECKPOINT_AES_KEY: ${EZER_CHECKPOINT_AES_KEY:?set EZER_CHECKPOINT_AES_KEY in the root .env}
+      EZER_MSAL_CACHE_AES_KEY: ${EZER_MSAL_CACHE_AES_KEY:?set EZER_MSAL_CACHE_AES_KEY in the root .env}
+      EZER_ACCOUNTS_FILE: /run/secrets/ezer_accounts.json
+      EZER_MSAL_CACHE_DIR: /data/msal-cache
+    secrets:
+      - source: ezer_accounts
+        target: ezer_accounts.json
+    volumes:
+      - msal-cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 16m
+    restart: unless-stopped
+
+secrets:
+  ezer_accounts:
+    file: ./ezer-bot/accounts.json
+
+volumes:
+  backend-data:
+  msal-cache:
+  postgres-data:

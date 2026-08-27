@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-scaleway-fixture-001",
+  "object": "chat.completion",
+  "created": 1787853600,
+  "model": "mistral-nemo-instruct-2407",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"decision\":\"REFUS\",\"justification\":\"Le taux d'endettement est de 29.00 %, le reste à vivre de 2407.61 EUR et 0 incident est enregistré.\",\"confidence\":0.87}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 184,
+    "completion_tokens": 47,
+    "total_tokens": 231
+  }
+}
