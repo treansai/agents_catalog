@@ -1,13 +1,12 @@
 /**
- * Push-to-talk capture for the dashboard.
+ * Capture push-to-talk, côté navigateur.
  *
- * MediaRecorder emits webm/opus, which the audio model does not accept, so the
- * recording is decoded and re-encoded as 16 kHz mono WAV in the browser. That is
- * the documented input format and it also divides the upload size by about ten.
+ * L'enregistrement part tel que `MediaRecorder` le produit — webm/opus, ou mp4 sur Safari : Scribe
+ * accepte les formats courants, si bien qu'il n'y a plus ni décodage, ni rééchantillonnage, ni
+ * réencodage en WAV avant l'envoi. C'est aussi ce qui voyage le plus léger.
  */
 
 export const MAX_RECORDING_MS = 15_000;
-const TARGET_SAMPLE_RATE = 16_000;
 
 export class VoiceCaptureError extends Error {
   constructor(message: string) {
@@ -24,82 +23,23 @@ export function isVoiceCaptureSupported(): boolean {
   );
 }
 
-function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-
-  const writeAscii = (offset: number, text: string) => {
-    for (let index = 0; index < text.length; index += 1) {
-      view.setUint8(offset + index, text.charCodeAt(index));
-    }
-  };
-
-  writeAscii(0, "RIFF");
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeAscii(8, "WAVE");
-  writeAscii(12, "fmt ");
-  view.setUint32(16, 16, true); // PCM header size
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
-  writeAscii(36, "data");
-  view.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (const sample of samples) {
-    const clamped = Math.max(-1, Math.min(1, sample));
-    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-    offset += 2;
-  }
-
-  return buffer;
-}
-
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  // Chunked so a long recording cannot blow the argument limit of String.fromCharCode.
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  return btoa(binary);
-}
-
-async function toWavBase64(blob: Blob): Promise<string> {
-  const encoded = await blob.arrayBuffer();
-  const decodeContext = new AudioContext();
-  let decoded: AudioBuffer;
-  try {
-    decoded = await decodeContext.decodeAudioData(encoded);
-  } finally {
-    await decodeContext.close();
-  }
-
-  const frames = Math.max(
-    1,
-    Math.round((decoded.duration * TARGET_SAMPLE_RATE) as number),
-  );
-  const offline = new OfflineAudioContext(1, frames, TARGET_SAMPLE_RATE);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
-  const resampled = await offline.startRendering();
-
-  return toBase64(encodeWav(resampled.getChannelData(0), TARGET_SAMPLE_RATE));
+/** Le nom de fichier renseigne le serveur sur le conteneur, que le navigateur choisit seul. */
+export function recordingFilename(audio: Blob): string {
+  const type = audio.type.split(";", 1)[0].trim().toLowerCase();
+  if (type === "audio/mp4" || type === "audio/aac") return "speech.mp4";
+  if (type === "audio/mpeg") return "speech.mp3";
+  if (type === "audio/ogg") return "speech.ogg";
+  return "speech.webm";
 }
 
 export interface VoiceRecording {
-  stop: () => Promise<string>;
+  /** Clôt l'enregistrement et rend le son capté. Le micro est relâché dans tous les cas. */
+  stop: () => Promise<Blob>;
+  /** Abandonne le tour : le micro est relâché et rien n'est envoyé. */
+  cancel: () => void;
 }
 
-/**
- * Opens the microphone and starts recording. The returned `stop` resolves with the
- * base64 WAV payload. The stream is always released, including on failure.
- */
+/** Ouvre le micro et commence à enregistrer. Le flux est toujours relâché, y compris en échec. */
 export async function startRecording(): Promise<VoiceRecording> {
   if (!isVoiceCaptureSupported()) {
     throw new VoiceCaptureError("Votre navigateur ne permet pas la commande vocale.");
@@ -135,8 +75,8 @@ export async function startRecording(): Promise<VoiceRecording> {
 
   const finished = new Promise<Blob>((resolve, reject) => {
     recorder.addEventListener("stop", () => {
-      // Release the microphone here so the browser's in-use indicator clears on every
-      // path, including the 15 s cap firing while the user has walked away.
+      // On relâche le micro ici pour que le témoin du navigateur s'éteigne sur tous les chemins,
+      // y compris quand le plafond de 15 s tombe alors que l'utilisateur s'est éloigné.
       release();
       resolve(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
     });
@@ -152,18 +92,22 @@ export async function startRecording(): Promise<VoiceRecording> {
     }
   }, MAX_RECORDING_MS);
 
+  const halt = () => {
+    clearTimeout(timeout);
+    if (recorder.state === "recording") {
+      recorder.stop();
+    }
+  };
+
   return {
     stop: async () => {
-      clearTimeout(timeout);
-      if (recorder.state === "recording") {
-        recorder.stop();
-      }
+      halt();
       try {
-        const blob = await finished;
-        if (blob.size === 0) {
+        const audio = await finished;
+        if (audio.size === 0) {
           throw new VoiceCaptureError("Aucun son n’a été enregistré.");
         }
-        return await toWavBase64(blob);
+        return audio;
       } catch (error) {
         if (error instanceof VoiceCaptureError) {
           throw error;
@@ -172,6 +116,10 @@ export async function startRecording(): Promise<VoiceRecording> {
       } finally {
         release();
       }
+    },
+    cancel: () => {
+      halt();
+      release();
     },
   };
 }

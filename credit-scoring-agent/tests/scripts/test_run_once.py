@@ -2,19 +2,24 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from pathlib import Path
 from typing import cast
 from uuid import UUID
 
 import pytest
 
+from adapters.run_agent import RunPorts, RunRequest
 from domain.events import DecisionEmitted
 from domain.run import LlmCallTrace, RunTrace
 from domain.tools import ToolCallTrace
+from infrastructure.observability.agenomic import AgenomicSettings, AgenomicTelemetry
 from scripts import run_once as run_once_script
 from scripts.run_once import CliArguments, RuntimeSettings
 
 RUN_ID = UUID("10000000-0000-0000-0000-000000000147")
 CONFIG_HASH = "a" * 64
+AGENOMIC_URL = "https://api.agenomic.io"
+AGENOMIC_API_KEY = "fixture-write-api-key"
 STARTED_AT = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
 ENDED_AT = STARTED_AT + timedelta(milliseconds=25)
 EVENT = DecisionEmitted(
@@ -58,21 +63,70 @@ def test_parse_arguments_rejects_missing_identifiers(argv: list[str]) -> None:
 
 
 def test_load_settings_reads_only_required_environment() -> None:
-    environ = {
-        "DATABASE_URL": "postgresql+psycopg://db/test",
-        "SCW_SECRET_KEY": "fixture-secret",
-        "UNRELATED": "ignored",
-    }
-    expected = RuntimeSettings(environ["DATABASE_URL"], environ["SCW_SECRET_KEY"])
+    environ = _valid_environment()
+    agenomic = AgenomicSettings(AGENOMIC_URL, AGENOMIC_API_KEY)
+    expected = RuntimeSettings(
+        environ["DATABASE_URL"], environ["SCW_SECRET_KEY"], agenomic
+    )
     assert run_once_script.load_settings(environ) == expected
 
 
-@pytest.mark.parametrize("missing", ["DATABASE_URL", "SCW_SECRET_KEY"])
+@pytest.mark.parametrize(
+    "missing",
+    ["DATABASE_URL", "SCW_SECRET_KEY"],
+)
 def test_load_settings_rejects_missing_or_blank_values(missing: str) -> None:
-    environ = {"DATABASE_URL": "database", "SCW_SECRET_KEY": "secret"}
+    environ = _valid_environment()
     environ[missing] = " "
     with pytest.raises(RuntimeError, match=missing):
         run_once_script.load_settings(environ)
+
+
+def test_load_settings_allows_bootstrap_without_agenomic_api_key() -> None:
+    environ = _valid_environment()
+    del environ["AGENOMIC_API_KEY"]
+    expected = RuntimeSettings(environ["DATABASE_URL"], environ["SCW_SECRET_KEY"], None)
+    assert run_once_script.load_settings(environ) == expected
+
+
+def test_load_settings_requires_api_url_when_export_is_enabled() -> None:
+    environ = _valid_environment()
+    environ["AGENOMIC_API_URL"] = " "
+    with pytest.raises(RuntimeError, match="AGENOMIC_API_URL"):
+        run_once_script.load_settings(environ)
+
+
+def _plain_run(request: RunRequest, ports: RunPorts) -> RunTrace:
+    del request, ports
+    return TRACE
+
+
+def _observed_run(
+    request: RunRequest, ports: RunPorts, telemetry: AgenomicTelemetry
+) -> RunTrace:
+    del request, ports, telemetry
+    return TRACE
+
+
+def test_invoke_uses_plain_graph_during_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_once_script, "execute_run", _plain_run)
+    request = RunRequest(CONFIG_HASH, "147")
+    assert run_once_script._invoke(request, _ports_stub(), None) == TRACE
+
+
+def test_invoke_uses_agenomic_graph_when_export_is_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(run_once_script, "execute_agenomic_run", _observed_run)
+    request = RunRequest(CONFIG_HASH, "147")
+    telemetry = cast(AgenomicTelemetry, object())
+    assert run_once_script._invoke(request, _ports_stub(), telemetry) == TRACE
+
+
+def _ports_stub() -> RunPorts:
+    return cast(RunPorts, object())
 
 
 def _fake_run(
@@ -102,8 +156,17 @@ def _patch_runtime(
     fake: Callable[[CliArguments, RuntimeSettings], RunTrace]
     fake = partial(_fake_run, captured)
     monkeypatch.setattr(run_once_script, "run_once", fake)
-    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://db/test")
-    monkeypatch.setenv("SCW_SECRET_KEY", "fixture-secret")
+    for name, value in _valid_environment().items():
+        monkeypatch.setenv(name, value)
+
+
+def _valid_environment() -> dict[str, str]:
+    return {
+        "DATABASE_URL": "postgresql+psycopg://db/test",
+        "SCW_SECRET_KEY": "fixture-secret",
+        "AGENOMIC_API_URL": AGENOMIC_URL,
+        "AGENOMIC_API_KEY": AGENOMIC_API_KEY,
+    }
 
 
 def _valid_argv() -> list[str]:
@@ -111,7 +174,8 @@ def _valid_argv() -> list[str]:
 
 
 def _expected_settings() -> RuntimeSettings:
-    return RuntimeSettings("postgresql+psycopg://db/test", "fixture-secret")
+    agenomic = AgenomicSettings(AGENOMIC_URL, AGENOMIC_API_KEY)
+    return RuntimeSettings("postgresql+psycopg://db/test", "fixture-secret", agenomic)
 
 
 def _captured_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
@@ -127,3 +191,11 @@ def test_summary_json_is_audit_friendly_and_does_not_include_secrets() -> None:
     assert payload["started_at"] == STARTED_AT.isoformat()
     assert payload["ended_at"] == ENDED_AT.isoformat()
     assert "secret" not in payload
+
+
+def test_env_example_documents_agenomic_cloud_credentials() -> None:
+    example = Path(".env.example").read_text(encoding="utf-8")
+    assert 'export AGENOMIC_API_URL="https://api.agenomic.io"' in example
+    assert 'export AGENOMIC_ENROLLMENT_TOKEN="<your-enrollment-token>"' in example
+    assert 'export AGENOMIC_API_KEY="<your-write-api-key>"' in example
+    assert AGENOMIC_API_KEY not in example

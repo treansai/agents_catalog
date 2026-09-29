@@ -125,6 +125,7 @@ export interface VoiceIntent {
 }
 
 export interface VoiceCommandResponse {
+  /** Ce que l'utilisateur a dit, tel que transcrit. La confirmation à afficher est `intent.reply`. */
   transcript: string;
   intent: VoiceIntent;
 }

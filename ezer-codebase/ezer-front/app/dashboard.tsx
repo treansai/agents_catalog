@@ -14,6 +14,7 @@ import type {
   VoiceIntent,
 } from "@/lib/ezer-types";
 import {
+  recordingFilename,
   startRecording,
   VoiceCaptureError,
   type VoiceRecording,
@@ -292,20 +293,22 @@ export function Dashboard({ initialSnapshot }: { initialSnapshot: DashboardSnaps
       setIsInterpreting(true);
       try {
         const audio = await recording.stop();
-        const response = await fetch("/api/ezer/voice", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ audio, account_ids: knownAccountIds }),
-        });
+        // Multipart plutôt que JSON : le son part tel quel, sans le tiers de volume du base64.
+        const form = new FormData();
+        form.append("audio", audio, recordingFilename(audio));
+        for (const accountId of knownAccountIds) {
+          form.append("account_ids", accountId);
+        }
+        const response = await fetch("/api/ezer/voice", { method: "POST", body: form });
         const payload: unknown = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(normalizeError(payload, "La commande vocale n’a pas abouti."));
         }
         const command = payload as VoiceCommandResponse;
         if (command.intent.action === "none") {
-          setNotice(command.transcript || "Commande non comprise.");
+          setNotice(command.intent.reply || "Commande non comprise.");
         } else {
-          setNotice(command.transcript);
+          setNotice(command.intent.reply);
           applyIntent(command.intent);
         }
       } catch (reason) {

@@ -10,7 +10,7 @@ from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.runtime import Runtime
+from langgraph.runtime import Runtime, get_runtime
 
 from adapters.prompting import render_prompt
 from adapters.tools import (
@@ -139,6 +139,18 @@ type AgentGraph = CompiledStateGraph[
 type AgentGraphBuilder = StateGraph[
     AgentGraphState, RunPorts, AgentGraphInput, AgentGraphOutput
 ]
+type RuntimeAgentNode = Callable[[AgentGraphState, Runtime[RunPorts]], GraphUpdate]
+type AgentNode = Callable[[AgentGraphState], dict[str, object]]
+type NodeInstrumenter = Callable[[str, AgentNode], AgentNode]
+
+
+@dataclass(frozen=True, slots=True)
+class _StateNodeAdapter:
+    node: AgentNode
+
+    def __call__(self, state: AgentGraphState) -> dict[str, object]:
+        return self.node(state)
+
 
 GRAPH_NODE_NAMES = (
     "load_config",
@@ -152,6 +164,11 @@ GRAPH_NODE_NAMES = (
 )
 
 
+def _identity_node(name: str, node: AgentNode) -> AgentNode:
+    del name
+    return node
+
+
 def execute_run(request: RunRequest, ports: RunPorts) -> RunTrace:
     return invoke_agent_graph(build_agent_graph(), request, ports)
 
@@ -163,9 +180,11 @@ def invoke_agent_graph(
     return _graph_trace(result)
 
 
-def build_agent_graph() -> AgentGraph:
+def build_agent_graph(
+    instrument_node: NodeInstrumenter = _identity_node,
+) -> AgentGraph:
     builder = _graph_builder()
-    _add_graph_nodes(builder)
+    _add_graph_nodes(builder, instrument_node)
     _add_graph_edges(builder)
     return builder.compile(name="credit-scoring-agent")
 
@@ -179,15 +198,19 @@ def _graph_builder() -> AgentGraphBuilder:
     )
 
 
-def _add_graph_nodes(builder: AgentGraphBuilder) -> None:
-    builder.add_node("load_config", _load_config_node)
-    builder.add_node("fetch_dossier", _fetch_dossier_node)
-    builder.add_node("compute_debt_ratio", _compute_debt_ratio_node)
-    builder.add_node("check_internal_list", _check_internal_list_node)
-    builder.add_node("render_prompt", _render_prompt_node)
-    builder.add_node("call_llm", _call_llm_node)
-    builder.add_node("build_trace", _build_trace_node)
-    builder.add_node("persist_trace", _persist_trace_node)
+def _add_graph_nodes(
+    builder: AgentGraphBuilder, instrument_node: NodeInstrumenter
+) -> None:
+    for name, node in zip(GRAPH_NODE_NAMES, AGENT_NODES, strict=True):
+        instrumented = instrument_node(name, _bind_runtime(node))
+        builder.add_node(name, _StateNodeAdapter(instrumented))
+
+
+def _bind_runtime(node: RuntimeAgentNode) -> AgentNode:
+    def invoke(state: AgentGraphState) -> dict[str, object]:
+        return dict(node(state, get_runtime(RunPorts)))
+
+    return invoke
 
 
 def _add_graph_edges(builder: AgentGraphBuilder) -> None:
@@ -259,6 +282,18 @@ def _persist_trace_node(
 ) -> GraphUpdate:
     runtime.context.persist_run(_required(state.trace, "trace"))
     return {}
+
+
+AGENT_NODES: tuple[RuntimeAgentNode, ...] = (
+    _load_config_node,
+    _fetch_dossier_node,
+    _compute_debt_ratio_node,
+    _check_internal_list_node,
+    _render_prompt_node,
+    _call_llm_node,
+    _build_trace_node,
+    _persist_trace_node,
+)
 
 
 def _graph_run_build(state: AgentGraphState, ended_at: datetime) -> RunBuild:

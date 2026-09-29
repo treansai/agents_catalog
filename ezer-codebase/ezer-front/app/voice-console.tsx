@@ -22,22 +22,31 @@ import {
   restoreConversation,
 } from "@/lib/agent-ui/instance-store";
 import {
-  connectRealtime,
-  isRealtimeSupported,
-  type RealtimeConnection,
-} from "@/lib/realtime-session";
+  isVoiceCaptureSupported,
+  startRecording,
+  type VoiceRecording,
+} from "@/lib/voice-capture";
+import {
+  createSpeechPlayer,
+  transcribeRecording,
+  type SpeechPlayer,
+} from "@/lib/voice-session";
 
 /**
  * Surface principale d'Ezer : on lui parle.
  *
- * La voix est le mode par défaut de bout en bout : le micro et le haut-parleur sont reliés au
- * modèle temps réel par WebRTC, sans étape de transcription puis de synthèse. Le modèle vocal ne
- * connaît rien de la boîte : il interroge Ezer par son unique outil et lit la réponse.
+ * Un tour de parole se fait en push-to-talk — un appui ouvre le micro, un second envoie — puis
+ * s'enchaîne en trois temps : ElevenLabs transcrit, Ezer répond en texte, ElevenLabs lit la
+ * réponse. Ezer est donc seul à raisonner : il n'y a plus de modèle vocal intermédiaire à qui
+ * confier une persona ni un outil pour l'interroger.
  * Le clavier reste disponible mais volontairement replié derrière l'icône message : il sert aux
  * environnements bruyants, aux identifiants difficiles à dicter et à l'accessibilité.
  */
 
 type Mode = "opaque" | "copilote";
+
+/** Le micro n'a pas deux états mais quatre : le tour passe par le réseau avant de répondre. */
+type MicState = "idle" | "listening" | "working" | "speaking";
 
 interface Deletion {
   message_id: string;
@@ -136,9 +145,10 @@ export function VoiceConsole() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [mic, setMic] = useState<MicState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const sessionRef = useRef<RealtimeConnection | null>(null);
+  const recordingRef = useRef<VoiceRecording | null>(null);
+  const playerRef = useRef<SpeechPlayer | null>(null);
   const counterRef = useRef(0);
 
   const pushAction = useCallback((text: string, meta: string, live = false): string => {
@@ -187,14 +197,16 @@ export function VoiceConsole() {
     })();
     return () => {
       cancelled = true;
-      sessionRef.current?.close();
-      sessionRef.current = null;
+      recordingRef.current?.cancel();
+      recordingRef.current = null;
+      playerRef.current?.stop();
+      playerRef.current = null;
     };
   }, []);
 
   /**
-   * Un tour auprès d'Ezer. Utilisé par l'outil `ask_ezer` du modèle vocal, par la saisie écrite et
-   * par la confirmation de suppression ; renvoie le texte qu'il faut restituer à l'utilisateur.
+   * Un tour auprès d'Ezer. Utilisé par la voix, par la saisie écrite et par la confirmation de
+   * suppression ; renvoie le texte qu'il faut restituer à l'utilisateur.
    */
   const converse = useCallback(
     async (
@@ -270,64 +282,63 @@ export function VoiceConsole() {
     [account, pushAction, settleAction, turns, uiMessages],
   );
 
-  async function toggleListening() {
+  async function toggleMicrophone() {
     setError(null);
 
-    // Deuxième appui : on raccroche. Une session ouverte consomme du temps d'antenne.
-    if (sessionRef.current !== null) {
-      sessionRef.current.close();
+    // Ezer parle : l'appui lui coupe la parole plutôt que d'attendre la fin de sa phrase.
+    if (mic === "speaking") {
+      playerRef.current?.stop();
+      return;
+    }
+    if (mic === "working") return;
+
+    const recording = recordingRef.current;
+    if (recording === null) {
+      if (!isVoiceCaptureSupported()) {
+        setError("Ce navigateur ne permet pas la conversation vocale.");
+        return;
+      }
+      if (account === null) return;
+
+      // Créé sous le clic : la lecture d'Ezer, qui n'arrive qu'après le réseau, hérite de
+      // l'autorisation que ce geste vient de donner.
+      playerRef.current?.stop();
+      playerRef.current = createSpeechPlayer();
+      try {
+        recordingRef.current = await startRecording();
+      } catch (reason) {
+        setError(humanError(reason, "Le micro n’a pas pu être ouvert."));
+        return;
+      }
+      setMic("listening");
+      setSpeaker("user");
+      setStatus("appuyez pour envoyer");
       return;
     }
 
-    if (!isRealtimeSupported()) {
-      setError("Ce navigateur ne permet pas la conversation vocale.");
-      return;
-    }
-    if (account === null) return;
-
-    setBusy(true);
-    setStatus("connexion…");
+    // Deuxième appui : on transcrit, on interroge Ezer, puis on lit sa réponse.
+    recordingRef.current = null;
+    setMic("working");
+    setSpeaker("idle");
+    setStatus("transcription…");
     try {
-      sessionRef.current = await connectRealtime({
-        onSpeaker: (next) => {
-          setSpeaker(next);
-          setStatus(
-            next === "user" ? "vous parlez" : next === "assistant" ? "ezer répond" : "à l’écoute",
-          );
-        },
-        onUserTranscript: (text) => {
-          setTurns((current) => [...current, { role: "user" as const, content: text }].slice(-MAX_HISTORY_TURNS));
-        },
-        onAssistantTranscript: (text) => {
-          setTurns((current) =>
-            [...current, { role: "assistant" as const, content: text }].slice(-MAX_HISTORY_TURNS),
-          );
-        },
-        onToolCall: async (name, args) => {
-          if (name !== "ask_ezer") return "Outil inconnu.";
-          const question = typeof args.question === "string" ? args.question : "";
-          if (question.trim() === "") return "La question était vide.";
-          return converse(question, []);
-        },
-        onError: (message) => setError(message),
-        onClosed: () => {
-          sessionRef.current = null;
-          setListening(false);
-          setSpeaker("idle");
-          setStatus("parler à ezer");
-        },
-      });
-      setListening(true);
-      setSpeaker("idle");
-      setStatus("à l’écoute");
+      const question = await transcribeRecording(await recording.stop());
+      if (question === "") {
+        setError("Rien n’a été entendu.");
+        return;
+      }
+      // `converse` ne relève pas : en échec il renvoie son message, qu'Ezer lira comme le reste.
+      const reply = await converse(question, []);
+      setMic("speaking");
+      setSpeaker("assistant");
+      setStatus("ezer répond");
+      await playerRef.current?.speak(reply);
     } catch (reason) {
-      sessionRef.current = null;
-      setListening(false);
+      setError(humanError(reason, "Le tour de parole n’a pas abouti."));
+    } finally {
+      setMic("idle");
       setSpeaker("idle");
       setStatus("parler à ezer");
-      setError(humanError(reason, "La session vocale n’a pas pu être ouverte."));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -483,7 +494,12 @@ export function VoiceConsole() {
    * travaille, ou qu'un panneau attend une réponse, les commandes restent à portée de clic.
    */
   const chromeHidden =
-    chromeIdle && !listening && !busy && !composerOpen && !historyOpen && pending.length === 0;
+    chromeIdle &&
+    mic === "idle" &&
+    !busy &&
+    !composerOpen &&
+    !historyOpen &&
+    pending.length === 0;
 
   const copilot = mode === "copilote";
   const renderedUi = uiMessages.filter((message) => message.kind === "ui.render");
@@ -527,7 +543,7 @@ export function VoiceConsole() {
         <div className={`ezer-stage${compact ? " is-compact" : ""}`}>
           <VoiceOrb
             accent={ACCENT}
-            onClick={() => void toggleListening()}
+            onClick={() => void toggleMicrophone()}
             size={compact ? 120 : 240}
             speaker={speaker}
           />
@@ -702,12 +718,12 @@ export function VoiceConsole() {
               </svg>
             </button>
             <button
-              className={`ezer-pill${listening ? "" : " is-primary"}`}
-              disabled={busy || account === null}
-              onClick={() => void toggleListening()}
+              className={`ezer-pill${mic === "idle" ? " is-primary" : ""}`}
+              disabled={account === null || busy || mic === "working"}
+              onClick={() => void toggleMicrophone()}
               type="button"
             >
-              {listening ? "⏹ raccrocher" : "● parler"}
+              {MIC_LABELS[mic]}
             </button>
           </div>
         </footer>
@@ -717,6 +733,13 @@ export function VoiceConsole() {
 }
 
 const CHROME_IDLE_MS = 4_000;
+
+const MIC_LABELS: Record<MicState, string> = {
+  idle: "● parler",
+  listening: "⏹ envoyer",
+  working: "… un instant",
+  speaking: "⏹ couper",
+};
 
 const CONSOLE_STYLES = `
 .ezer-voice {

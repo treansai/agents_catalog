@@ -34,6 +34,13 @@ from infrastructure.database.run_ports import (
 )
 from infrastructure.database.run_store import make_persist_run_port
 from infrastructure.llm.scaleway import build_scaleway_llm
+from infrastructure.observability.agenomic import (
+    AgenomicSettings,
+    AgenomicTelemetry,
+    build_agenomic_telemetry,
+    close_agenomic_telemetry,
+    execute_agenomic_run,
+)
 
 type LookupPorts = tuple[ConfigLookup, DossierLookup, InternalListLookup]
 type RuntimePorts = tuple[LlmPort, PersistRunPort, UtcClock, ClockNs, UuidFactory]
@@ -53,6 +60,7 @@ class CliArguments:
 class RuntimeSettings:
     database_url: str
     scaleway_api_key: str
+    agenomic: AgenomicSettings | None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -72,7 +80,15 @@ def parse_arguments(argv: Sequence[str] | None = None) -> CliArguments:
 def load_settings(environ: Mapping[str, str]) -> RuntimeSettings:
     database_url = _required_environment(environ, "DATABASE_URL")
     api_key = _required_environment(environ, "SCW_SECRET_KEY")
-    return RuntimeSettings(database_url, api_key)
+    return RuntimeSettings(database_url, api_key, _agenomic_settings(environ))
+
+
+def _agenomic_settings(environ: Mapping[str, str]) -> AgenomicSettings | None:
+    api_key = environ.get("AGENOMIC_API_KEY", "").strip()
+    if not api_key:
+        return None
+    api_url = _required_environment(environ, "AGENOMIC_API_URL")
+    return AgenomicSettings(api_url, api_key)
 
 
 def _required_environment(environ: Mapping[str, str], name: str) -> str:
@@ -85,18 +101,70 @@ def _required_environment(environ: Mapping[str, str], name: str) -> str:
 def run_once(arguments: CliArguments, settings: RuntimeSettings) -> RunTrace:
     engine = build_engine(settings.database_url)
     try:
-        with httpx.Client(timeout=60.0) as client:
-            return _execute(arguments, settings.scaleway_api_key, engine, client)
+        return _run_with_engine(arguments, settings, engine)
     finally:
         engine.dispose()
 
 
+def _run_with_engine(
+    arguments: CliArguments, settings: RuntimeSettings, engine: Engine
+) -> RunTrace:
+    if settings.agenomic is None:
+        return _run_without_telemetry(arguments, settings, engine)
+    return _run_observed(arguments, settings, engine)
+
+
+def _run_observed(
+    arguments: CliArguments, settings: RuntimeSettings, engine: Engine
+) -> RunTrace:
+    telemetry = build_agenomic_telemetry(_required_agenomic(settings))
+    try:
+        return _run_with_telemetry(arguments, settings, engine, telemetry)
+    finally:
+        close_agenomic_telemetry(telemetry)
+
+
+def _required_agenomic(settings: RuntimeSettings) -> AgenomicSettings:
+    if settings.agenomic is None:
+        raise RuntimeError("Agenomic settings are unavailable")
+    return settings.agenomic
+
+
+def _run_without_telemetry(
+    arguments: CliArguments, settings: RuntimeSettings, engine: Engine
+) -> RunTrace:
+    with httpx.Client(timeout=60.0) as client:
+        return _execute(arguments, settings.scaleway_api_key, engine, client, None)
+
+
+def _run_with_telemetry(
+    arguments: CliArguments,
+    settings: RuntimeSettings,
+    engine: Engine,
+    telemetry: AgenomicTelemetry,
+) -> RunTrace:
+    with httpx.Client(timeout=60.0) as client:
+        return _execute(arguments, settings.scaleway_api_key, engine, client, telemetry)
+
+
 def _execute(
-    arguments: CliArguments, api_key: str, engine: Engine, client: httpx.Client
+    arguments: CliArguments,
+    api_key: str,
+    engine: Engine,
+    client: httpx.Client,
+    telemetry: AgenomicTelemetry | None,
 ) -> RunTrace:
     request = RunRequest(arguments.config_hash, arguments.dossier_id)
     ports = _run_ports(engine, client, api_key)
-    return execute_run(request, ports)
+    return _invoke(request, ports, telemetry)
+
+
+def _invoke(
+    request: RunRequest, ports: RunPorts, telemetry: AgenomicTelemetry | None
+) -> RunTrace:
+    if telemetry is None:
+        return execute_run(request, ports)
+    return execute_agenomic_run(request, ports, telemetry)
 
 
 def _run_ports(engine: Engine, client: httpx.Client, api_key: str) -> RunPorts:

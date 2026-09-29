@@ -1,28 +1,26 @@
 # Ezer codebase
 
-Ce dossier regroupe les composants du projet Ezer. La stack active frontend/backend est entièrement
-en TypeScript.
+Ce dossier regroupe les composants du projet Ezer. Toute la stack est en TypeScript.
 
 ## Structure
 
 - `ezer-front/` : interface Next.js et routes BFF de même origine ;
 - `ezer-backend/` : API NestJS, analyse des messages et persistance locale ;
-- `ezer-bot/` : prototype Python (API + worker LangGraph), conservé comme référence et non utilisé
-  par la stack active, mais démarrable via Docker Compose.
+- `ezer-bot/` : assistant multi-agents NestJS (Claude), qui lit et propose via le backend.
 
 ## Prérequis
 
 - Node.js 22 ;
 - pnpm 9 pour le frontend ;
-- npm pour le backend.
+- npm pour le backend et le bot.
 
 ## Démarrage avec Docker Compose
 
-L'ensemble de la stack (frontend, backend, bot Python, Postgres) démarre en une commande :
+L'ensemble de la stack (frontend, backend, bot) démarre en une commande :
 
 ```bash
 cd ezer-codebase
-cp .env.example .env   # renseigner POSTGRES_PASSWORD et les deux clés AES
+cp .env.example .env   # renseigner EZER_BOT_API_KEY et EZER_ANTHROPIC_API_KEY
 docker compose up -d --build
 ```
 
@@ -30,24 +28,11 @@ docker compose up -d --build
 | --- | --- | --- |
 | `front` | <http://127.0.0.1:3000> | interface Next.js et routes BFF |
 | `backend` | <http://127.0.0.1:8080> | API NestJS (analyse heuristique, persistance JSON) |
-| `bot-api` | <http://127.0.0.1:8081> | API FastAPI du prototype Python |
-| `postgres` | interne | base du bot Python |
+| `bot-api` | <http://127.0.0.1:8081> | assistant multi-agents |
 
 Le frontend joint le backend via le réseau Compose (`EZER_API_URL=http://backend:8080`) : il démarre
-donc en mode `live`, pas en mode démo.
-
-Le worker du bot est optionnel car il interroge de vraies boîtes mail et appelle l'API Anthropic :
-
-```bash
-docker compose --profile worker up -d
-```
-
-Il exige au préalable un cache MSAL amorcé (le compte configuré utilise l'authentification
-`device_code`, qui est interactive) :
-
-```bash
-docker compose run --rm bot-api auth outlook --account outlook-work
-```
+donc en mode `live`, pas en mode démo. L'assistant joint le bot (`EZER_BOT_URL=http://bot-api:8080`),
+qui lui-même joint le backend pour lire et mettre à la corbeille, jamais Microsoft.
 
 Arrêt de la stack :
 
@@ -70,27 +55,54 @@ npm run start:dev
 Dans un second terminal :
 
 ```bash
+cd ezer-codebase/ezer-bot
+cp .env.example .env
+npm install
+npm run start:dev
+```
+
+Dans un troisième terminal :
+
+```bash
 cd ezer-codebase/ezer-front
 cp .env.example .env.local
 pnpm install
 pnpm dev
 ```
 
-Le frontend est disponible sur <http://localhost:3000> et le backend sur
-<http://localhost:8080>. Les fichiers `.env.example` documentent la configuration locale.
+Le frontend est disponible sur <http://localhost:3000>, le backend sur
+<http://localhost:8080> et le bot sur <http://localhost:8081>. Les fichiers `.env.example`
+documentent la configuration locale.
 
-## Commande vocale
+## Voix
 
-Le bouton « Parler » du tableau de bord permet de piloter l'interface à la voix. L'enregistrement
-est capté en push-to-talk (un appui pour démarrer, un second pour envoyer, 15 s maximum), converti
-en WAV 16 kHz mono dans le navigateur, puis envoyé à la route BFF `/api/ezer/voice`, qui interroge
-le modèle audio `gpt-audio-1.5` d'OpenAI côté serveur. La clé API ne quitte jamais le serveur.
+La voix repose sur ElevenLabs : Scribe transcrit, une voix de synthèse lit les réponses. Les deux
+surfaces vocales sont en push-to-talk — un appui pour ouvrir le micro, un second pour envoyer,
+15 s maximum. L'enregistrement part tel que le navigateur le produit (webm/opus, mp4 sur Safari),
+en multipart, sans réencodage. Aucune clé d'API n'atteint le navigateur.
 
-Activation — renseignez `OPENAI_API_KEY` dans le `.env` racine (Docker) ou dans
-`ezer-front/.env.local` (local), puis redémarrez le service `front`. Sans clé, le bouton reste
-visible et la route répond « La commande vocale n'est pas configurée ».
+**Console (`/`)** — un tour se déroule en trois temps : `/api/ezer/voice/transcribe` transcrit la
+question, `/api/ezer/assistant` la pose à l'agent Ezer, puis `/api/ezer/voice/speak` relaie le flux
+audio de la réponse. Ezer est donc seul à raisonner : il n'y a plus de modèle vocal intermédiaire
+entre l'utilisateur et l'agent.
 
-Ordres reconnus :
+**Tableau de bord (`/analyses`)** — le bouton « Parler » pilote l'interface. `/api/ezer/voice`
+transcrit l'ordre chez ElevenLabs, puis un modèle de texte OpenAI le réduit à une intention JSON.
+
+Activation — renseignez `ELEVENLABS_API_KEY` (permissions `text_to_speech` **et**
+`speech_to_text`) et `OPENAI_API_KEY` dans le `.env` racine (Docker) ou dans
+`ezer-front/.env.local` (local), puis redémarrez le service `front`. Sans clé, les boutons restent
+visibles et les routes répondent « n'est pas configurée ».
+
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` | Voix lue (Rachel) |
+| `ELEVENLABS_TTS_MODEL` | `eleven_flash_v2_5` | Synthèse ; `eleven_v3` est plus fidèle mais plus lent |
+| `ELEVENLABS_STT_MODEL` | `scribe_v1` | Transcription ; `scribe_v2` est plus précis et plus cher |
+| `ELEVENLABS_STT_LANGUAGE` | `fra` | Langue attendue ; vide = détection automatique |
+| `OPENAI_VOICE_MODEL` | `gpt-4.1-mini` | Lecture des ordres du tableau de bord |
+
+Ordres reconnus par le tableau de bord :
 
 | Exemple parlé | Effet |
 | --- | --- |
@@ -129,6 +141,11 @@ démonstration d'OSRM n'offre aucune garantie de disponibilité.
 
 ```bash
 cd ezer-codebase/ezer-backend
+npm test
+npm run lint
+npm run build
+
+cd ../ezer-bot
 npm test
 npm run lint
 npm run build
