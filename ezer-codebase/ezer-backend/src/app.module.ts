@@ -15,6 +15,7 @@ import { GraphMailService } from "./mail/graph-mail.service";
 import { TokenStoreService } from "./mail/token-store.service";
 import { JsonPersistenceService } from "./persistence/json-persistence.service";
 import { ConnectorRegistryService } from "./sync/connector-registry.service";
+import { MessageAnalyzer } from "./analysis/message-analyzer";
 import { SyncService } from "./sync/sync.service";
 import { ActionRegistry } from "./agent-ui/actions";
 import { ConfirmationStore } from "./agent-ui/confirmation";
@@ -32,6 +33,7 @@ import { IdempotencyStore, ResolverCache } from "./agent-ui/cache";
     SLEEPER_PROVIDER,
     GraphMailService,
     ConnectorRegistryService,
+    MessageAnalyzer,
     SyncService,
     ApiKeyGuard,
     NeutralExceptionFilter,

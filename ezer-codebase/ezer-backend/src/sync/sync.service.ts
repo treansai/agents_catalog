@@ -1,6 +1,6 @@
 import { Injectable, UnprocessableEntityException } from "@nestjs/common";
 
-import { analyseMessage } from "../analysis/analyse-message";
+import { MessageAnalyzer } from "../analysis/message-analyzer";
 import { AppConfigService } from "../config/app-config.service";
 import type { Account, SyncReport } from "../domain/models";
 import { JsonPersistenceService } from "../persistence/json-persistence.service";
@@ -11,7 +11,8 @@ export class SyncService {
   constructor(
     private readonly config: AppConfigService,
     private readonly persistence: JsonPersistenceService,
-    private readonly connectors: ConnectorRegistryService
+    private readonly connectors: ConnectorRegistryService,
+    private readonly analyzer: MessageAnalyzer
   ) {}
 
   async sync(accountIds?: string[], requestedLimit?: number): Promise<SyncReport[]> {
@@ -48,7 +49,7 @@ export class SyncService {
         continue;
       }
       try {
-        analyses.push(analyseMessage(message));
+        analyses.push(await this.analyzer.analyse(message));
       } catch {
         failed += 1;
       }
