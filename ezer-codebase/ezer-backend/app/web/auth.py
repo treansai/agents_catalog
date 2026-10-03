@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 
 from starlette.requests import Request
 
 from app.errors import HttpError
 
+_MAC_KEY = secrets.token_bytes(32)
+
 
 def _digest(value: str) -> bytes:
-    return hashlib.sha256(value.encode("utf-8")).digest()
+    return hmac.digest(_MAC_KEY, value.encode("utf-8"), hashlib.sha256)
 
 
 def api_key_matches(supplied: str | None, expected: str) -> bool:
