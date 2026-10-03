@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "accounts": [
+    {
+      "id": "gmail-primary",
+      "provider": "gmail"
+    },
+    {
+      "id": "outlook-ops",
+      "provider": "outlook"
+    }
+  ],
+  "analyses": [
+    {
+      "analysis_id": "79a09ddbce260de56d6db5da64c9ab7ceb9f6a130652480a041a7f070a24db5e",
+      "message_ref": "outlook:outlook-ops:outlook-001",
+      "content_hash": "13e4c0893471402748e321c4a6245e97dcdc30b4c904d457e6b52f24e09b6723",
+      "pipeline_version": "ezer-ts-v1",
+      "model_id": "ezer-typescript-rules-v1",
+      "prompt_version": "heuristic-fr-v1",
+      "created_at": "2026-08-27T07:50:00.000Z",
+      "category": "action_required",
+      "priority": "high",
+      "needs_human_review": false,
+      "summary": "Confirmation urgente du plan de reprise.",
+      "key_points": [
+        "Objet : Action requise — incident critique aujourd'hui",
+        "Expéditeur : Centre des opérations",
+        "Une réponse ou validation explicite est demandée."
+      ],
+      "action_items": [
+        {
+          "description": "Action requise — incident critique aujourd'hui",
+          "owner": null,
+          "due_date": null,
+          "confidence": 0.82
+        }
+      ],
+      "safety": {
+        "risk_level": "none",
+        "prompt_injection_detected": false,
+        "phishing_likelihood": 0.04,
+        "indicators": [
+          "langage d'urgence"
+        ],
+        "rationale": "Aucun signal hostile manifeste n'a été détecté par les règles locales.",
+        "confidence": 0.9
+      },
+      "triage": {
+        "category": "action_required",
+        "priority": "high",
+        "needs_human_review": false,
+        "confidence": 0.84,
+        "rationale": "Le texte formule une demande explicite ou une échéance."
+      },
+      "detected_language": "fr"
+    },
+    {
+      "analysis_id": "0b9fa6e2fc35c6fd6ed5201e1ceb15db617f82c1b7729b2703542ab67e250fde",
+      "message_ref": "gmail:gmail-primary:gmail-002",
+      "content_hash": "5c50537b2409596d3e1ddf3041b45de231ecd1a1988fbf91bbb07a2eaeda1bef",
+      "pipeline_version": "ezer-ts-v1",
+      "model_id": "ezer-typescript-rules-v1",
+      "prompt_version": "heuristic-fr-v1",
+      "created_at": "2026-08-27T07:20:00.000Z",
+      "category": "action_required",
+      "priority": "high",
+      "needs_human_review": false,
+      "summary": "Merci de valider la dernière version du contrat.",
+      "key_points": [
+        "Objet : Validation du contrat avant le 29 août 2026",
+        "Expéditeur : Camille Martin",
+        "Une réponse ou validation explicite est demandée."
+      ],
+      "action_items": [
+        {
+          "description": "Validation du contrat avant le 29 août 2026",
+          "owner": null,
+          "due_date": "29 août 2026",
+          "confidence": 0.82
+        }
+      ],
+      "safety": {
+        "risk_level": "none",
+        "prompt_injection_detected": false,
+        "phishing_likelihood": 0.04,
+        "indicators": [],
+        "rationale": "Aucun signal hostile manifeste n'a été détecté par les règles locales.",
+        "confidence": 0.9
+      },
+      "triage": {
+        "category": "action_required",
+        "priority": "high",
+        "needs_human_review": false,
+        "confidence": 0.84,
+        "rationale": "Le texte formule une demande explicite ou une échéance."
+      },
+      "detected_language": "fr"
+    },
+    {
+      "analysis_id": "a0555c78b9b318472ef07f3746fa60c3cbe830a41d671a8bec0686e2f859c37f",
+      "message_ref": "gmail:gmail-primary:gmail-001",
+      "content_hash": "451bab0cc41a9a1ed33e96c1a1580e4d94d6b9c04cb4a046d44c24b21f419617",
+      "pipeline_version": "ezer-ts-v1",
+      "model_id": "ezer-typescript-rules-v1",
+      "prompt_version": "heuristic-fr-v1",
+      "created_at": "2026-08-27T06:45:00.000Z",
+      "category": "security",
+      "priority": "high",
+      "needs_human_review": true,
+      "summary": "Une connexion inhabituelle demande votre attention.",
+      "key_points": [
+        "Objet : Connexion inhabituelle à vérifier",
+        "Expéditeur : Équipe sécurité",
+        "Une réponse ou validation explicite est demandée."
+      ],
+      "action_items": [
+        {
+          "description": "Connexion inhabituelle à vérifier",
+          "owner": null,
+          "due_date": null,
+          "confidence": 0.82
+        }
+      ],
+      "safety": {
+        "risk_level": "medium",
+        "prompt_injection_detected": false,
+        "phishing_likelihood": 0.74,
+        "indicators": [
+          "demande sensible ou identité à vérifier"
+        ],
+        "rationale": "Le contenu présente des signaux qui doivent être vérifiés avant toute action.",
+        "confidence": 0.86
+      },
+      "triage": {
+        "category": "security",
+        "priority": "high",
+        "needs_human_review": true,
+        "confidence": 0.84,
+        "rationale": "Le message contient un signal de sécurité qui exige de conserver la décision humaine."
+      },
+      "detected_language": "fr"
+    },
+    {
+      "analysis_id": "b8b4be6a1a526fe2681f8b59522e03012142fc5deaa883a76893e9087669a1c9",
+      "message_ref": "gmail:gmail-primary:gmail-003",
+      "content_hash": "16e771146adfd02819b2b9bd211bb329f6f7297be77a10ab1a69b5fc7d763d38",
+      "pipeline_version": "ezer-ts-v1",
+      "model_id": "ezer-typescript-rules-v1",
+      "prompt_version": "heuristic-fr-v1",
+      "created_at": "2026-08-26T15:10:00.000Z",
+      "category": "newsletter",
+      "priority": "low",
+      "needs_human_review": false,
+      "summary": "Les nouveautés produit de cette semaine.",
+      "key_points": [
+        "Objet : Newsletter produit — édition de la semaine",
+        "Expéditeur : Atelier Produit",
+        "Aucune action explicite détectée."
+      ],
+      "action_items": [],
+      "safety": {
+        "risk_level": "none",
+        "prompt_injection_detected": false,
+        "phishing_likelihood": 0.04,
+        "indicators": [],
+        "rationale": "Aucun signal hostile manifeste n'a été détecté par les règles locales.",
+        "confidence": 0.9
+      },
+      "triage": {
+        "category": "newsletter",
+        "priority": "low",
+        "needs_human_review": false,
+        "confidence": 0.84,
+        "rationale": "Le message est informatif et ne contient pas de demande explicite."
+      },
+      "detected_language": "en"
+    }
+  ],
+  "cursors": {
+    "gmail-primary": "3",
+    "outlook-ops": "1"
+  }
+}

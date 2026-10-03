@@ -1,4 +1,4 @@
-# Full Ezer stack: Next.js frontend -> NestJS backend + TypeScript bot.
+# Full Ezer stack: Next.js frontend -> FastAPI backend + FastAPI bot (Python).
 # Values come from the root .env file.
 name: ezer
 
@@ -37,9 +37,9 @@ services:
       test:
         [
           "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "python",
+          "-c",
+          "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2); sys.exit(0)",
         ]
       interval: 10s
       timeout: 3s
@@ -67,9 +67,9 @@ services:
       test:
         [
           "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "python",
+          "-c",
+          "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2); sys.exit(0)",
         ]
       interval: 15s
       timeout: 3s
