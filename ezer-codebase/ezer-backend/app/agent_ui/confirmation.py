@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import hmac
 import secrets
 import time
@@ -23,7 +22,7 @@ class ConfirmationRecord:
 
 
 def _digest(value: str) -> bytes:
-    return hashlib.sha256(value.encode("utf-8")).digest()
+    return value.encode("utf-8", errors="surrogatepass")
 
 
 def _now_ms() -> float:
