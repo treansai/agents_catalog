@@ -1,7 +1,7 @@
 # Ezer backend
 
-API NestJS entièrement TypeScript pour le tableau de bord Ezer. Le service lit des messages depuis
-un connecteur, produit des analyses déterministes et les conserve dans un fichier JSON écrit
+API FastAPI (Python 3.12) pour le tableau de bord Ezer. Le service lit des messages depuis un
+connecteur, produit des analyses déterministes et les conserve dans un fichier JSON écrit
 atomiquement.
 
 **Le service n'est plus strictement en lecture seule.** Il expose une mise à la corbeille, appelée
@@ -9,15 +9,22 @@ par les agents d'`ezer-bot` après confirmation explicite de l'opérateur. Aucun
 définitive n'est exposée, aucun envoi ni aucune modification de message n'est possible, et la portée
 OAuth demandée reste bornée à `Mail.ReadWrite`.
 
+Le contrat HTTP (routes, codes de statut, noms de champs JSON, enveloppe d'erreur) est celui de
+l'ancienne implémentation NestJS : le frontend `ezer-front` et le bot `ezer-bot` n'ont pas changé.
+
 ## Démarrage rapide
 
-Prérequis : Node.js 20 ou plus récent.
+Prérequis : Python 3.12 ou plus récent.
 
 ```bash
 cp .env.example .env
-npm install
-npm run start:dev
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+uvicorn app.main:app --reload --port 8080
 ```
+
+`python -m app` lance aussi le serveur en lisant `EZER_HOST` et `EZER_PORT`. Avec `uvicorn`, l'hôte et
+le port se passent en options (`--host`, `--port`) ; l'image Docker écoute sur `0.0.0.0:8080`.
 
 Le mode par défaut est `demo`. Il initialise deux comptes et quatre analyses, puis expose trois
 messages supplémentaires lors de la première synchronisation. Sa clé locale par défaut est
@@ -34,6 +41,25 @@ curl -X POST -H 'Content-Type: application/json' \
   http://localhost:8080/v1/sync
 ```
 
+## Organisation du code
+
+```text
+app/
+  main.py          create_app(settings=None) et `app` (point d'entrée ASGI)
+  config.py        Settings (pydantic-settings) : variables EZER_*, mêmes règles de validation
+  web/             middleware (X-Request-ID, no-store, borne de 64 Kio), validation, enveloppe d'erreur
+  routers/         health, v1 (comptes, analyses, sync, messages), agent_ui
+  domain/          modèles Pydantic (comptes, messages, analyses, état de connexion)
+  analysis/        règles locales ezer-ts-v1, assemblage, pipeline, interface Jev
+  mail/            device code Outlook, magasin de jetons, opérations et connecteur Graph
+  sync/            connecteurs (catalogue, Graph), registre, service de synchronisation
+  persistence/     fichier JSON sérialisé, écriture atomique
+  agent_ui/        catalogue, rendu, résolveurs, actions, confirmations, cache, lieux et itinéraires
+  services/        câblage, client HTTP sortant (httpx), horodatages
+  demo/            comptes et messages de démonstration
+tests/             pytest (TestClient) : contrat HTTP, Outlook, outils de messagerie, agent UI
+```
+
 ## Connecter une boîte Outlook
 
 L'authentification et la lecture des messages sont entièrement assurées par ce backend : le
@@ -45,7 +71,7 @@ frontend n'affiche que l'URI publique de Microsoft et le code à saisir, et n'a 
 2. Renseignez `EZER_OUTLOOK_CLIENT_ID` avec une application Entra publique dont l'option
    « Allow public client flows » est activée.
 3. Depuis le tableau de bord, cliquez sur « Connecter » : Ezer démarre un flux device code sur
-   l'autorité grand public `consumers`, avec les portées `offline_access Mail.Read User.Read`.
+   l'autorité grand public `consumers`, avec les portées `offline_access Mail.ReadWrite User.Read`.
 4. Ouvrez l'URI affichée, saisissez le code, et connectez-vous **avec la boîte configurée** : une
    autre adresse est refusée avec le code `mailbox_mismatch`.
 
@@ -112,7 +138,8 @@ Il faut **Déconnecter puis Reconnecter** la boîte une fois pour accorder la no
 
 ## Configuration
 
-Toutes les options sont documentées dans `.env.example`.
+Toutes les options sont documentées dans `.env.example`. Les variables sont lues dans l'environnement,
+puis dans un fichier `.env` du répertoire courant (l'environnement l'emporte).
 
 - `EZER_MODE=demo` active les comptes, analyses et messages de démonstration. Avec
   `EZER_DEMO_RESET_ON_START=true`, le fichier de données est recréé à chaque démarrage.
@@ -124,16 +151,17 @@ Toutes les options sont documentées dans `.env.example`.
   Le connecteur livré lit uniquement ce fichier local : il ne se connecte pas directement aux API
   Gmail ou Microsoft Graph.
 - `EZER_DATA_FILE` choisit le fichier de persistance. Chaque mutation est sérialisée, écrite dans un
-  fichier temporaire adjacent, synchronisée, puis remplacée avec `rename`.
+  fichier temporaire adjacent, synchronisée, puis remplacée avec `os.replace`.
 
 Le fichier de données contient des synthèses et actions dérivées des messages. Ezer le crée avec des
 permissions restrictives, mais un déploiement réel doit aussi le placer sur un volume chiffré et
 limiter sa sauvegarde, sa rétention et son accès au seul processus backend.
 
 En mode `configured`, `EZER_API_KEY` est obligatoire. Le serveur ne renvoie jamais la clé, le contenu
-des exceptions ou une trace. Toutes les routes `/v1` exigent `X-API-Key`, répondent avec
-`Cache-Control: no-store`, propagent un `X-Request-ID` valide ou en créent un, et refusent les corps
-supérieurs à 64 Kio.
+des exceptions ou une trace. Toutes les routes `/v1` exigent `X-API-Key` (comparée en temps constant),
+répondent avec `Cache-Control: no-store`, propagent un `X-Request-ID` valide ou en créent un, et
+refusent les corps supérieurs à 64 Kio. Toute erreur utilise la même enveloppe neutre :
+`{ statusCode, message, detail, request_id }`.
 
 ### Format minimal de `EZER_SOURCE_FILE`
 
@@ -159,15 +187,34 @@ Les identifiants de comptes acceptent uniquement lettres ASCII, chiffres, point,
 Les fournisseurs reconnus sont `gmail` et `outlook`. Le fichier source est relu à chaque page, ce qui
 permet de le mettre à jour sans redémarrer le serveur.
 
+## Analyse des messages
+
+Les analyses sont produites par un pipeline en fonctions Python simples, dans l'ordre
+`judge_jev → decide_route → (auto_file | surface | escalate) → assemble`, avec repli sur
+`judge_rules → assemble` quand Jev est absent ou en erreur.
+
+- **Par défaut**, les règles locales déterministes (`pipeline_version: ezer-ts-v1`,
+  `model_id: ezer-typescript-rules-v1`) s'appliquent. Les identifiants d'analyse restent identiques à
+  ceux de l'ancienne implémentation : un fichier de données existant reste valide et la
+  synchronisation reste idempotente.
+- **Jev (TypeSafe)** est derrière l'interface `JevClient` (`app/analysis/jev.py`) : questions,
+  seuils et politique de décision sont portés, mais le SDK TypeScript n'a pas d'équivalent Python
+  publié et aucun adaptateur réseau n'est livré. Définir `TYPESAFE_API_KEY` seul n'active donc rien
+  (un avertissement est journalisé) ; brancher un client se fait via
+  `create_app(jev_client=...)`.
+
 ## API
 
 ```text
 GET  /health/live
 GET  /health/ready
 GET  /v1/accounts
+GET  /v1/accounts/:id/connection        POST (démarre) · DELETE (déconnecte)
 GET  /v1/analyses?limit=&offset=&account_id=&category=&priority=&needs_human_review=
 GET  /v1/analyses/:analysisId
 POST /v1/sync                     { account_ids?: string[], limit?: number }
+GET  /v1/agent-ui/catalog?workspace_id=
+POST /v1/agent-ui/{render,patch,resolve,action}?workspace_id=
 ```
 
 La liste d'analyses répond avec `{ items, total, limit, offset }`. La synchronisation répond avec
@@ -177,10 +224,22 @@ La liste d'analyses répond avec `{ items, total, limit, offset }`. La synchroni
 ## Qualité
 
 ```bash
-npm test
-npm run lint
-npm run build
+pytest
+ruff check .
+mypy app          # facultatif
 ```
 
-Les tests Jest/Supertest couvrent la santé, l'authentification, la validation, les filtres, la
-synchronisation idempotente, les en-têtes de sécurité et la limite de corps.
+Les tests pytest (`TestClient`) couvrent la santé, l'authentification, la validation, les filtres, la
+synchronisation idempotente, les en-têtes de sécurité, la limite de corps, le flux Outlook, les outils
+de messagerie et l'interface agent. Des fichiers de référence générés par l'ancienne implémentation
+(`tests/fixtures/`) vérifient que le catalogue et les analyses de démonstration n'ont pas changé.
+
+## Docker
+
+```bash
+docker build -t ezer-backend .
+docker run --rm -p 8080:8080 -v ezer-data:/app/data ezer-backend
+```
+
+L'image s'exécute sous un utilisateur non privilégié (`ezer`, uid 10001) ; le répertoire `/app/data`
+doit rester un volume pour conserver les analyses et les jetons.

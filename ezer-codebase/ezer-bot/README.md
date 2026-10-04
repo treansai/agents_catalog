@@ -1,18 +1,19 @@
 # Ezer bot
 
-Assistant multi-agents TypeScript (NestJS). Il orchestre Claude, lit et propose des suppressions
+Assistant multi-agents Python 3.12 (FastAPI, SDK `anthropic`). Il orchestre Claude, lit et propose des suppressions
 en passant par `ezer-backend`, et n'a jamais de credential Microsoft.
 
 Le bot ne conserve aucune conversation : l'historique est fourni à chaque tour par l'appelant.
 
 ## Démarrage local
 
-Prérequis : Node.js 20 ou plus récent.
+Prérequis : Python 3.12 ou plus récent.
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
 cp .env.example .env
-npm install
-npm run start:dev
+python -m app          # lit EZER_HOST / EZER_PORT ; ou : uvicorn app.main:app --reload --port 8081
 ```
 
 Renseigner `EZER_API_KEY`, `EZER_ANTHROPIC_API_KEY`, `EZER_BACKEND_URL` et
@@ -69,7 +70,18 @@ mise à la corbeille.
 ## Qualité
 
 ```bash
-npm test
-npm run lint
-npm run build
+pytest
+ruff check .
 ```
+
+Les tests injectent un faux modèle (`create_app(settings, model_factory=...)`) et un transport
+`httpx.MockTransport` pour le backend : aucun appel réseau, aucune clé Anthropic requise.
+
+## Conteneur
+
+```bash
+docker build -t ezer-bot .
+docker run --env-file .env -p 8080:8080 ezer-bot   # uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+L'image tourne sans privilèges (utilisateur non-root).

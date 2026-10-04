@@ -1,24 +1,21 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-slim AS builder
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json tsconfig.build.json nest-cli.json ./
-COPY src ./src
-RUN npm run build
+FROM python:3.12-slim AS builder
+WORKDIR /build
+COPY pyproject.toml ./
+COPY app ./app
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --disable-pip-version-check .
 
-FROM node:22-slim AS deps
+FROM python:3.12-slim AS runtime
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+RUN groupadd --system --gid 10001 ezer \
+    && useradd --system --uid 10001 --gid ezer --no-create-home --shell /usr/sbin/nologin ezer \
+    && mkdir -p /app/data \
+    && chown -R ezer:ezer /app
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-FROM node:22-slim AS runtime
-ENV NODE_ENV=production
-WORKDIR /app
-RUN mkdir -p /app/data && chown -R node:node /app
-COPY --from=deps --chown=node:node /app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --chown=node:node package.json ./
-USER node
+COPY --from=builder /opt/venv /opt/venv
+USER ezer
 EXPOSE 8080
-CMD ["node", "dist/main.js"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

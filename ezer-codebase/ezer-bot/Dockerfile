@@ -1,24 +1,15 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-slim AS builder
+FROM python:3.12-slim AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json tsconfig.build.json nest-cli.json ./
-COPY src ./src
-RUN npm run build
-
-FROM node:22-slim AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-FROM node:22-slim AS runtime
-ENV NODE_ENV=production
-WORKDIR /app
-RUN chown -R node:node /app
-COPY --from=deps --chown=node:node /app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --chown=node:node package.json ./
-USER node
+COPY pyproject.toml ./
+COPY app ./app
+RUN pip install . \
+    && useradd --system --uid 10001 --no-create-home ezer \
+    && chown -R ezer:ezer /app
+USER ezer
 EXPOSE 8080
-CMD ["node", "dist/main.js"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

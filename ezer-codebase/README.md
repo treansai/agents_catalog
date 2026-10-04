@@ -1,18 +1,17 @@
 # Ezer codebase
 
-Ce dossier regroupe les composants du projet Ezer. Toute la stack est en TypeScript.
+Ce dossier regroupe les composants du projet Ezer. Le frontend est en TypeScript (Next.js), le backend et le bot sont en Python (FastAPI).
 
 ## Structure
 
 - `ezer-front/` : interface Next.js et routes BFF de même origine ;
-- `ezer-backend/` : API NestJS, analyse des messages et persistance locale ;
-- `ezer-bot/` : assistant multi-agents NestJS (Claude), qui lit et propose via le backend.
+- `ezer-backend/` : API FastAPI, analyse des messages et persistance locale ;
+- `ezer-bot/` : assistant multi-agents FastAPI (Claude), qui lit et propose via le backend.
 
 ## Prérequis
 
-- Node.js 22 ;
-- pnpm 9 pour le frontend ;
-- npm pour le backend et le bot.
+- Python 3.12 pour le backend et le bot ;
+- Node.js 22 et pnpm 9 pour le frontend.
 
 ## Démarrage avec Docker Compose
 
@@ -27,7 +26,7 @@ docker compose up -d --build
 | Service | Port hôte | Rôle |
 | --- | --- | --- |
 | `front` | <http://127.0.0.1:3000> | interface Next.js et routes BFF |
-| `backend` | <http://127.0.0.1:8080> | API NestJS (analyse heuristique, persistance JSON) |
+| `backend` | <http://127.0.0.1:8080> | API FastAPI (analyse heuristique, persistance JSON) |
 | `bot-api` | <http://127.0.0.1:8081> | assistant multi-agents |
 
 Le frontend joint le backend via le réseau Compose (`EZER_API_URL=http://backend:8080`) : il démarre
@@ -48,8 +47,9 @@ Dans un premier terminal :
 ```bash
 cd ezer-codebase/ezer-backend
 cp .env.example .env
-npm install
-npm run start:dev
+python -m venv .venv && . .venv/bin/activate
+pip install -e '.[dev]'
+python -m app
 ```
 
 Dans un second terminal :
@@ -57,8 +57,9 @@ Dans un second terminal :
 ```bash
 cd ezer-codebase/ezer-bot
 cp .env.example .env
-npm install
-npm run start:dev
+python -m venv .venv && . .venv/bin/activate
+pip install -e '.[dev]'
+python -m app
 ```
 
 Dans un troisième terminal :
@@ -141,14 +142,12 @@ démonstration d'OSRM n'offre aucune garantie de disponibilité.
 
 ```bash
 cd ezer-codebase/ezer-backend
-npm test
-npm run lint
-npm run build
+pytest
+ruff check .
 
 cd ../ezer-bot
-npm test
-npm run lint
-npm run build
+pytest
+ruff check .
 
 cd ../ezer-front
 pnpm lint
